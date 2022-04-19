@@ -18,13 +18,6 @@ proc handle(client: AsyncSocket) {.async.} =
     let cmd   = words[0]
     let args  = if words.len > 1: words[1 .. words.high] else: @[]
 
-    template want(num: int) =
-      ## Require a minimum number of arguments.
-      ## If the requirement is not met, send an error to the client.
-      if args.len < num:
-        await client.send "error args " & $num & "\n"
-        continue
-
     var res: Rope
     proc sendLine(line: string) =
       ## Simulate sending a line by appending it to the cache (`res`).
@@ -69,7 +62,6 @@ proc handle(client: AsyncSocket) {.async.} =
 
     case cmd
     of "queue":
-      want(0)
       if position == nil:
         for i in globalList: sendLine $i
       else:
@@ -77,17 +69,17 @@ proc handle(client: AsyncSocket) {.async.} =
       sendLine "end"
 
     of "add":
-      want(1)
-      for newSong in args:
-        globalList.addSong newSong
-        sendLine "added " & newSong
+      if args.len == 0:
+        sendLine "error args"
+      else:
+        for newSong in args:
+          globalList.addSong newSong
+          sendLine "added " & newSong
 
     of "next":
-      want(0)
       nextCmd()
 
     of "clear":
-      want(0)
       # go to the last element
       while position.next != nil:
         advance()
