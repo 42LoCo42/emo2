@@ -11,7 +11,7 @@ type
   Position* = SinglyLinkedNode[PlaylistItem]
 
 func `$`*(item: PlaylistItem): string =
-  item.song & " " & $item.refcount
+  item.song
 
 iterator itemsFrom*[T](node: SinglyLinkedNode[T]): T =
   var current = node

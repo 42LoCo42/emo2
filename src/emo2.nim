@@ -63,9 +63,9 @@ proc handle(client: AsyncSocket) {.async.} =
     case cmd
     of "queue":
       if position == nil:
-        for i in globalList: sendLine $i
+        for i in globalList: sendLine "queued " & $i
       else:
-        for i in position.itemsFrom: sendLine $i
+        for i in position.itemsFrom: sendLine "queued " & $i
       sendLine "end"
 
     of "add":
