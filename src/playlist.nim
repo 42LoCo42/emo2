@@ -1,6 +1,6 @@
 import std/[lists, db_sqlite, random, math, strutils]
 
-let db* = open("songs.db", "", "", "")
+let db = open("songs.db", "", "", "")
 
 type
   PlaylistItem* = tuple
