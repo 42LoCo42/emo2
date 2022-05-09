@@ -48,7 +48,7 @@ proc handle(client: AsyncSocket) {.async.} =
 
         # possibly generate a new song
         if position.next == nil:
-          globalList.addFromGenerator#
+          globalList.addFromGenerator
 
         # switch to next song
         position = position.next
@@ -80,11 +80,13 @@ proc handle(client: AsyncSocket) {.async.} =
       nextCmd()
 
     of "clear":
+      # potentially join queue
+      if position == nil:
+        advance()
+
       # go to the last element
       while position.next != nil:
         advance()
-      # and then to the next (which is new)
-      nextCmd()
 
     else:
       sendLine "error unknown"
@@ -97,6 +99,7 @@ proc main {.async.} =
   server.bindAddr 37812.Port
   server.listen
 
+  echo "emo2: ready for connections!"
   while true:
     let client = await server.accept
     asyncCheck client.handle
