@@ -88,7 +88,15 @@ proc handle(client: AsyncSocket) {.async.} =
       while position.next != nil:
         advance()
 
+    of "complete":
+      if args.len == 0:
+        sendLine "error args"
+      else:
+        for song in args:
+          complete song
+
     else:
+      echo "unknown command ", line
       sendLine "error unknown"
 
     await client.send $res

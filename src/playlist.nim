@@ -37,3 +37,7 @@ proc addFromGenerator*(playlist: var Playlist) =
   let song = songs.sample totals.cumsummed
   stderr.writeLine "generator returns " & song
   playlist.addSong song
+
+proc complete*(song: string) =
+  let count = db.getValue(sql "select count from songs where path = ?", song)
+  db.exec(sql "update songs set count = ? + 1 where path = ?", count, song)
