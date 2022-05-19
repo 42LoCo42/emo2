@@ -1,0 +1,9 @@
+# vim: ft=sxhkd
+super + shift + o
+	echo next
+super + shift + p
+	echo toggle
+super + shift + udiaeresis
+	echo restart
+super + shift + odiaeresis
+	echo repeat
