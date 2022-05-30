@@ -65,9 +65,9 @@ proc handle(client: AsyncSocket) {.async.} =
     elif line == "\r\L": # empty line received
       continue
 
-    let words = line.split " "
-    let cmd   = words[0]
-    let args  = if words.len > 1: words[1 .. words.high] else: @[]
+    let parts = line.split(" ", maxsplit = 1)
+    let cmd   = parts[0]
+    let arg   = if parts.len > 1: parts[1] else: ""
 
     var res: Rope
     proc sendLine(line: string) =
@@ -88,12 +88,11 @@ proc handle(client: AsyncSocket) {.async.} =
       sendLine "end"
 
     of "add":
-      if args.len == 0:
+      if arg.len == 0:
         sendLine "error args"
       else:
-        for newSong in args:
-          globalList.addSong newSong
-          sendLine "added " & newSong
+        globalList.addSong arg
+        sendLine "added " & arg
 
     of "next":
       nextCmd()
@@ -102,11 +101,10 @@ proc handle(client: AsyncSocket) {.async.} =
       clearCmd()
 
     of "complete":
-      if args.len == 0:
+      if arg.len == 0:
         sendLine "error args"
       else:
-        for song in args:
-          complete song
+        complete arg
 
     else:
       echo "unknown command ", line
