@@ -58,9 +58,8 @@ cmd() {
 
 		case "$cmd" in
 		stat)
-			# strip URL and last part (always "/file") from song
+			# strip URL from song
 			song="${song#"$url"}"
-			song="${song%/file}" # TODO eventually no longer required
 			echo -ne "[2K\r$song: $time/$dur ($percent)" >&2
 			((paused)) && echo -n " (paused)" >&2
 
