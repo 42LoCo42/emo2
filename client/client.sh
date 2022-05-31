@@ -40,7 +40,7 @@ cmd() {
 		declare song
 		send next
 		recv song
-		cmd loadfile "$url$song/file"
+		cmd loadfile "$url$song"
 		setpause 0
 		cmd run "$SHELL" -c "sleep 1 && echo unlock"
 		emo wall "$song"
