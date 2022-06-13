@@ -1,4 +1,4 @@
-import std/[asyncnet, asyncdispatch, strutils, ropes, lists]
+import std/[asyncnet, asyncdispatch, strutils, ropes, lists, db_sqlite]
 import playlist
 
 var globalList: Playlist
@@ -106,6 +106,28 @@ proc handle(client: AsyncSocket) {.async.} =
       else:
         complete arg
 
+    of "getTable":
+      if arg.len == 0:
+        sendLine "error args"
+      else:
+        try:
+          for row in db.fastRows(sql "select * from " & arg):
+            sendLine row.join "\t"
+          sendLine ""
+        except DbError:
+          sendLine "error " & getCurrentExceptionMsg()
+
+    of "mergeChanges":
+      while true:
+        let change = await client.recvLine
+        if change == "" or change == "\r\L":
+          break
+
+        let parts = change.split "\t"
+        let song  = parts[0]
+        let diff  = parts[1].parseInt
+        db.exec(sql "update songs set count = count + ? where path = ?", diff, song)
+
     else:
       echo "unknown command ", line
       sendLine "error unknown"
@@ -121,6 +143,7 @@ proc main {.async.} =
   echo "emo2: ready for connections!"
   while true:
     let client = await server.accept
+    echo "accepted client"
     asyncCheck client.handle
 
 asyncCheck main()
