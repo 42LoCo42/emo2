@@ -1,11 +1,24 @@
 import std/[asyncnet, asyncdispatch, strutils, ropes, lists, db_sqlite]
 import playlist
+import zeolite
 
+var z: zeolite
 var globalList: Playlist
 
+proc trustAll(pk: zeolite.sign_pk): zeolite.error =
+  echo pk
+  return zeolite.SUCCESS
+
 proc handle(client: AsyncSocket) {.async.} =
+  var c: zeolite.channel
   var position: Position = nil # the current playlist position = the most recently emitted song
   defer: client.close
+
+  if zeolite.create_channel(
+    addr z, addr c, cast[cint](client.getFd), trustAll
+  ) != zeolite.SUCCESS:
+    echo "Could not create channel"
+    return
 
   proc finish =
     ## Leave current song, possible deleting it if we were the last referent and
@@ -56,14 +69,20 @@ proc handle(client: AsyncSocket) {.async.} =
   while true:
     defer: echo globalList
 
-    let line = await client.recvLine
-    if line == "": # client closed the connection
-      # decrease refcount of current song, process queue cleanup
+    var buf: cstring
+    var len: csize_t
+    if zeolite.channel_recv(addr c, addr buf, addr len) != zeolite.SUCCESS:
+      # client closed the connection
+      # decrease refcount of current, process queue cleanup
       clearCmd()
       finish()
       break
-    elif line == "\r\L": # empty line received
-      continue
+
+    if len < 2: continue
+
+    # copy to string, remove last character (newline)
+    var line = newString(len - 1)
+    copyMem(addr line[0], buf, len - 1)
 
     let parts = line.split(" ", maxsplit = 1)
     let cmd   = parts[0]
@@ -132,13 +151,21 @@ proc handle(client: AsyncSocket) {.async.} =
       echo "unknown command ", line
       sendLine "error unknown"
 
-    await client.send $res
+    if zeolite.channel_send(addr c, cstring($res), cast[csize_t](res.len)) != zeolite.SUCCESS:
+      echo "Could not send line"
+      return
 
 proc main {.async.} =
   let server = newAsyncSocket()
   server.setSockOpt(OptReuseAddr, true)
   server.bindAddr 37812.Port
   server.listen
+
+  if zeolite.init() != 0:
+    quit "Could not load zeolite!"
+
+  if zeolite.create(addr z) != zeolite.SUCCESS:
+    quit "Could not create zeolite identity!"
 
   echo "emo2: ready for connections!"
   while true:

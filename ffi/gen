@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+cd "$(realpath "${BASH_SOURCE[0]%/*}")" || exit 1
+out="../src/zeolite.nim"
+c2nim \
+	--dynlib:'"libzeolite.so"' \
+	--importc \
+	--skipcomments \
+	--prefix:"zeolite_" \
+	-o:"$out" \
+	zeolite.h
+
+size="$(cat << EOF | tcc -run -
+#include <zeolite.h>
+int main() {
+	printf("%lu\n",
+		sizeof(crypto_secretstream_xchacha20poly1305_state)
+	);
+}
+EOF
+)"
+
+sed -Ei '
+	/^type$/d;
+	1i type\n  crypto_secretstream_xchacha20poly1305_state = '"array[$size, uint8]"'
+	/^\s*$/d;
+' "$out"
+
+grep -o "crypto_.*BYTES" "$out" | while read -r sym; do
+	size="$(echo -e "#include <sodium.h>\n$sym" | tcc -E - | tail -1)"
+	sed -i "s|$sym|$size|g" "$out"
+done
+
+sed -i '
+	s|cuchar|uint8|g;
+	s|ptr uint8|cstring|g;
+' "$out"
