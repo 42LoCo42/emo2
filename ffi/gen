@@ -10,7 +10,7 @@ c2nim \
 	zeolite.h
 
 size="$(cat << EOF | tcc -run -
-#include <zeolite.h>
+#include <sodium.h>
 int main() {
 	printf("%lu\n",
 		sizeof(crypto_secretstream_xchacha20poly1305_state)
@@ -20,8 +20,9 @@ EOF
 )"
 
 sed -Ei '
-	/^type$/d;
 	1i type\n  crypto_secretstream_xchacha20poly1305_state = '"array[$size, uint8]"'
+	s|ptr krk_[a-z]+_t|ptr int|g;
+	s|uint32_t|uint32|g;
 	/^\s*$/d;
 ' "$out"
 
