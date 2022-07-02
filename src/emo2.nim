@@ -1,15 +1,34 @@
-import std/[strutils, ropes, lists, db_sqlite, options]
+import std/[os, strutils, ropes, lists, db_sqlite]
 import playlist
-import zeolite
 
 var globalList: Playlist
 
-proc trustAll(pk: zeolite.sign_pk): zeolite.error =
-  echo pk
-  return zeolite.SUCCESS
+{.compile: "main.c".}
+{.passL: "-lsodium -lkrimskrams -lzeolite".}
 
-proc handler(coro: ptr int, loop: ptr int, channel: ptr zeolite.channel): cint =
+{.push importc.}
+proc entrypoint(address: cstring, port: cstring, fn: proc(data: ptr int)): int
+{.pop.}
+
+{.push exportc.}
+proc addToPlaylist(song: cstring) =
+  globalList.addSong $song
+  echo globalList
+
+proc queue(data: pointer, cb: proc(data: pointer, song: cstring)) =
+  # if position == nil:
+  #   for i in globalList: sendLine "queued " & $i
+  # else:
+  #   for i in position.itemsFrom: sendLine "queued " & $i
+  for item in globalList:
+    cb(data, "queued " & item.song & "\n")
+  cb(data, "end\n")
+
+{.pop.}
+
+proc client(data: ptr int) =
   var position: Position = nil # the current playlist position = the most recently emitted song
+  echo "in client"
 
   proc finish =
     ## Leave current song, possible deleting it if we were the last referent and
@@ -57,31 +76,14 @@ proc handler(coro: ptr int, loop: ptr int, channel: ptr zeolite.channel): cint =
     while position.next != nil:
       advance()
 
-  proc recvLine: Option[string] =
-    var buf: cstring
-    var len: uint32
-
-    if zeolite.channel_recv(coro, channel, addr buf, addr len) != zeolite.SUCCESS:
-      echo "Could not receive line"
-      # client closed the connection
-      # decrease refcount of current, process queue cleanup
-      clearCmd()
-      finish()
-      return
-
-    var line = newString(len)
-    copyMem(addr line[0], buf, len)
-    result = some(line)
-
-  block main:
+  block loop:
     while true:
       defer: echo globalList
 
-      let optLine = recvLine()
-      if optLine.isNone:
-        break main
-      let line = optLine.unsafeGet
+      let rawLine = ""
+      let line = $rawLine
 
+      echo line
       if line.len < 2: continue
 
       let parts = line.split(" ", maxsplit = 1)
@@ -100,18 +102,7 @@ proc handler(coro: ptr int, loop: ptr int, channel: ptr zeolite.channel): cint =
 
       case cmd
       of "queue":
-        if position == nil:
-          for i in globalList: sendLine "queued " & $i
-        else:
-          for i in position.itemsFrom: sendLine "queued " & $i
         sendLine "end"
-
-      of "add":
-        if arg.len == 0:
-          sendLine "error args"
-        else:
-          globalList.addSong arg
-          sendLine "added " & arg
 
       of "next":
         nextCmd()
@@ -138,12 +129,10 @@ proc handler(coro: ptr int, loop: ptr int, channel: ptr zeolite.channel): cint =
 
       of "mergeChanges":
         while true:
-          let optChange = recvLine()
-          if optChange.isNone:
-            break main
-          let change = optChange.unsafeGet
+          let rawChange = ""
+          let change = $rawChange
 
-          if change == "" or change == "\r\L":
+          if change == "":
             break
 
           let parts = change.split "\t"
@@ -155,28 +144,12 @@ proc handler(coro: ptr int, loop: ptr int, channel: ptr zeolite.channel): cint =
         echo "unknown command ", line
         sendLine "error unknown"
 
-      if zeolite.channel_send(coro, channel, cstring($res), cast[uint32](res.len)) != zeolite.SUCCESS:
-        echo "Could not send line"
-        return
+      # data.sendLine($res)
 
 proc main =
-  if zeolite.init() != 0:
-    quit "Could not load zeolite!"
+  let args = commandLineParams()
+  if args.len < 2:
+    quit "Usage: $1 address port" % [getAppFilename()]
+  echo entrypoint(args[0], args[1], client)
 
-  var z: zeolite
-  if zeolite.create(addr z) != zeolite.SUCCESS:
-    quit "Could not create zeolite identity!"
-
-  echo "emo2: ready for connections!"
-  {.emit: ["""
-    zeolite_multiServer(
-      """, z.addr, """,
-      "localhost",
-      "37812",
-      """, trustAll, """,
-      """,handler, """
-    );
-  """].}
-
-{.passL: "-lzeolite -lkrimskrams" .}
 main()
