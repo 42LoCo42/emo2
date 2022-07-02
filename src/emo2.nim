@@ -114,6 +114,10 @@ proc mergeChanges(data: pointer, recv: proc(data: pointer): cstring) =
     let song  = parts[0]
     let diff  = parts[1].parseInt
     db.exec(sql "update songs set count = count + ? where path = ?", diff, song)
+
+proc onDisconnect(pos: var Position) =
+  clear(pos)
+  finish(pos)
 {.pop.}
 
 proc main =

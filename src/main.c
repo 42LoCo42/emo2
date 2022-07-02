@@ -34,6 +34,7 @@ void next(data* d, void** pos, send_f);
 void complete(char* song);
 void getTable(data* d, char* table, send_f);
 void mergeChanges(data* d, recv_f);
+void onDisconnect(void** pos);
 
 zeolite_error trustAll(zeolite_sign_pk pk) {
 	char* b64 = zeolite_enc_b64(pk, sizeof(zeolite_sign_pk));
@@ -53,9 +54,11 @@ char* recv(data* d) {
 	return buf;
 }
 
-int handler(krk_coro_t* coro, krk_eventloop_t* loop, zeolite_channel* c) {
-	data  me  = {coro, loop, c};
-	void* pos = NULL;
+int handler(
+	krk_coro_t* coro, krk_eventloop_t* loop,
+	zeolite_channel* c, void** pos
+) {
+	data me = {coro, loop, c};
 
 	for(;;) {
 		unsigned char* buf = NULL;
@@ -77,9 +80,9 @@ int handler(krk_coro_t* coro, krk_eventloop_t* loop, zeolite_channel* c) {
 			needsArg();
 			addToPlaylist(arg);
 		} else if(strcmp(buf, "queue") == 0) {
-			queue(&me, pos, send);
+			queue(&me, *pos, send);
 		} else if(strcmp(buf, "clear") == 0) {
-			clear(&pos);
+			clear(pos);
 		} else if(strcmp(buf, "next") == 0) {
 			next(&me, &pos, send);
 		} else if(strcmp(buf, "complete") == 0) {
@@ -95,10 +98,31 @@ int handler(krk_coro_t* coro, krk_eventloop_t* loop, zeolite_channel* c) {
 			zeolite_channel_send(coro, c, err, strlen(err));
 		}
 
-		printList();
 	}
 
 	krk_coro_finish(coro, NULL);
+}
+
+int outer(krk_coro_t* coro, krk_eventloop_t* loop, zeolite_channel* c) {
+	void* pos = NULL;
+	krk_coro_t inner = {0};
+	krk_coro_mk(&inner, handler, 3, loop, c, &pos);
+	for(;;) {
+		krk_coro_run(&inner);
+
+		switch(inner.state) {
+			case PAUSED:
+				printList();
+				krk_coro_yield(coro, NULL);
+				break;
+			case ERRORED:
+				onDisconnect(&pos);
+				printList();
+				krk_coro_free(&inner);
+				krk_coro_error(coro);
+				break;
+		}
+	}
 }
 
 void entrypoint(char* address, char* port) {
@@ -114,6 +138,6 @@ void entrypoint(char* address, char* port) {
 		address,
 		port,
 		trustAll,
-		handler
+		outer
 	);
 }
