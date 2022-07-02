@@ -23,8 +23,17 @@ typedef struct {
 	zeolite_channel* c;
 } data;
 
+typedef void  (*send_f)(data* d, char* song);
+typedef char* (*recv_f)(data* d);
+
+void printList();
 void addToPlaylist(char* song);
-void queue(data* d, void (*cb)(data* d, char* song));
+void queue(data* d, void* pos, send_f);
+void clear(void** pos);
+void next(data* d, void** pos, send_f);
+void complete(char* song);
+void getTable(data* d, char* table, send_f);
+void mergeChanges(data* d, recv_f);
 
 zeolite_error trustAll(zeolite_sign_pk pk) {
 	char* b64 = zeolite_enc_b64(pk, sizeof(zeolite_sign_pk));
@@ -33,12 +42,20 @@ zeolite_error trustAll(zeolite_sign_pk pk) {
 	return SUCCESS;
 }
 
-void queueCB(data* d, char* song) {
+void send(data* d, char* song) {
 	zeolite_channel_send(d->coro, d->c, song, strlen(song));
 }
 
+char* recv(data* d) {
+	char*    buf = NULL;
+	uint32_t len = 0;
+	zeolite_channel_recv(d->coro, d->c, (unsigned char**) &buf, &len);
+	return buf;
+}
+
 int handler(krk_coro_t* coro, krk_eventloop_t* loop, zeolite_channel* c) {
-	data me = {coro, loop, c};
+	data  me  = {coro, loop, c};
+	void* pos = NULL;
 
 	for(;;) {
 		unsigned char* buf = NULL;
@@ -60,47 +77,31 @@ int handler(krk_coro_t* coro, krk_eventloop_t* loop, zeolite_channel* c) {
 			needsArg();
 			addToPlaylist(arg);
 		} else if(strcmp(buf, "queue") == 0) {
-			queue(&me, queueCB);
+			queue(&me, pos, send);
+		} else if(strcmp(buf, "clear") == 0) {
+			clear(&pos);
+		} else if(strcmp(buf, "next") == 0) {
+			next(&me, &pos, send);
+		} else if(strcmp(buf, "complete") == 0) {
+			needsArg();
+			complete(arg);
+		} else if(strcmp(buf, "getTable") == 0) {
+			needsArg();
+			getTable(&me, arg, send);
+		} else if(strcmp(buf, "mergeChanges") == 0) {
+			mergeChanges(&me, recv);
+		} else {
+			const char* err = "Error: unknown command\n";
+			zeolite_channel_send(coro, c, err, strlen(err));
 		}
+
+		printList();
 	}
 
 	krk_coro_finish(coro, NULL);
 }
 
-char* recvLine(data* d) {
-	char*    buf = NULL;
-	uint32_t len = 0;
-
-	zeolite_error e = zeolite_channel_recv(
-		d->coro,
-		d->c,
-		(unsigned char**) &buf,
-		&len
-	);
-
-	if(e != SUCCESS) {
-		warnx("Could not receive: %s", zeolite_error_str(e));
-		krk_coro_error(d->coro);
-	}
-
-	buf[len - 1] = 0;
-	return buf;
-}
-
-void sendLine(data* d, char* line) {
-	zeolite_error e = zeolite_channel_send(
-		d->coro,
-		d->c,
-		line,
-		strlen(line)
-	);
-
-	if(e != SUCCESS) {
-		warnx("Could not send: %s", zeolite_error_str(e));
-	}
-}
-
-int entrypoint(char* address, char* port) {
+void entrypoint(char* address, char* port) {
 	krk_coro_stack = 1 << 20;
 
 	safex(zeolite_init() < 0, "Could not init zeolite");
@@ -108,12 +109,11 @@ int entrypoint(char* address, char* port) {
 	zeolite z = {0};
 	safex(zeolite_create(&z) < 0, "Could not create zeolite identity");
 
-	int ret = zeolite_multiServer(
+	zeolite_multiServer(
 		&z,
 		address,
 		port,
 		trustAll,
 		handler
 	);
-	return -ret;
 }

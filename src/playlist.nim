@@ -12,7 +12,7 @@ type
   Position* = SinglyLinkedNode[PlaylistItem]
 
 func `$`*(item: PlaylistItem): string =
-  item.song
+  "$1 ($2)" % [item.song, $(item.refcount)]
 
 iterator itemsFrom*[T](node: SinglyLinkedNode[T]): T =
   var current = node
@@ -37,11 +37,3 @@ proc addFromGenerator*(playlist: var Playlist) =
   let song = songs.sample totals.cumsummed
   stderr.writeLine "generator returns " & song
   playlist.addSong song
-
-proc complete*(song: string) =
-  echo "completing ", song
-  let count = db.getValue(sql "select count from songs where path = ?", song)
-  if count.len == 0:
-    db.exec(sql "insert into songs values (?, 1, 1)", song)
-  else:
-    db.exec(sql "update songs set count = ? + 1 where path = ?", count, song)
