@@ -1,4 +1,4 @@
-import std/[asyncnet, asyncdispatch, strutils, ropes, lists, db_sqlite]
+import std/[os, asyncnet, asyncdispatch, strutils, ropes, lists, db_sqlite]
 import playlist
 
 var globalList: Playlist
@@ -135,9 +135,13 @@ proc handle(client: AsyncSocket) {.async.} =
     await client.send $res
 
 proc main {.async.} =
+  let args = commandLineParams()
+  if args.len < 2:
+    quit "Usage: $1 address port" % [getAppFilename()]
+
   let server = newAsyncSocket()
   server.setSockOpt(OptReuseAddr, true)
-  server.bindAddr 37812.Port
+  server.bindAddr(args[1].parseInt.Port, args[0])
   server.listen
 
   echo "emo2: ready for connections!"
