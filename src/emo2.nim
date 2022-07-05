@@ -1,11 +1,17 @@
 import std/[os, asyncnet, asyncdispatch, strutils, ropes, lists, db_sqlite]
 import playlist
+import zeolite
 
+let identity = zeolite.createIdentity()
 var globalList: Playlist
 
-proc handle(client: AsyncSocket) {.async.} =
+proc trustAll(pk: SignPK): bool =
+  true
+
+proc handle(socket: AsyncSocket) {.async.} =
   var position: Position = nil # the current playlist position = the most recently emitted song
-  defer: client.close
+  var channel = await zeolite.createChannel(identity, socket, trustAll)
+  defer: channel.sock.close
 
   proc finish =
     ## Leave current song, possible deleting it if we were the last referent and
@@ -53,91 +59,95 @@ proc handle(client: AsyncSocket) {.async.} =
     while position.next != nil:
       advance()
 
-  while true:
-    defer: echo globalList
+  try:
+    while true:
+      defer: echo globalList
 
-    let line = await client.recvLine
-    if line == "": # client closed the connection
-      # decrease refcount of current song, process queue cleanup
-      clearCmd()
-      finish()
-      break
-    elif line == "\r\L": # empty line received
-      continue
+      let line = strip(await channel.recv)
+      if line == "":
+        continue
 
-    let parts = line.split(" ", maxsplit = 1)
-    let cmd   = parts[0]
-    let arg   = if parts.len > 1: parts[1] else: ""
+      let parts = line.split(" ", maxsplit = 1)
+      let cmd   = parts[0]
+      let arg   = if parts.len > 1: parts[1] else: ""
 
-    var res: Rope
-    proc sendLine(line: string) =
-      ## Simulate sending a line by appending it to the cache (`res`).
-      ## The given line must not end with a line terminator (it will be added by this function).
-      res.add line & "\n"
+      var res: Rope
+      proc sendLine(line: string) =
+        ## Simulate sending a line by appending it to the cache (`res`).
+        ## The given line must not end with a line terminator (it will be added by this function).
+        res.add line & "\n"
 
-    proc nextCmd =
-      advance()
-      sendLine position.value.song
+      proc nextCmd =
+        advance()
+        sendLine position.value.song
 
-    case cmd
-    of "queue":
-      if position == nil:
-        for i in globalList: sendLine "queued " & $i
+      case cmd
+      of "queue":
+        if position == nil:
+          for i in globalList: sendLine "queued " & $i
+        else:
+          for i in position.itemsFrom: sendLine "queued " & $i
+        sendLine "end"
+
+      of "add":
+        if arg.len == 0:
+          sendLine "error args"
+        else:
+          globalList.addSong arg
+          sendLine "added " & arg
+
+      of "next":
+        nextCmd()
+
+      of "clear":
+        clearCmd()
+
+      of "complete":
+        if arg.len == 0:
+          sendLine "error args"
+        else:
+          complete arg
+
+      of "getTable":
+        if arg.len == 0:
+          sendLine "error args"
+        else:
+          try:
+            for row in db.fastRows(sql "select * from " & arg):
+              sendLine row.join "\t"
+            sendLine ""
+          except DbError:
+            sendLine "error " & getCurrentExceptionMsg()
+
+      of "mergeChanges":
+        while true:
+          let change = strip(await channel.recv)
+          if change == "":
+            break
+
+          let parts = change.split "\t"
+          let song  = parts[0]
+          let diff  = parts[1].parseInt
+          db.exec(sql "update songs set count = count + ? where path = ?", diff, song)
+
       else:
-        for i in position.itemsFrom: sendLine "queued " & $i
-      sendLine "end"
+        echo "unknown command ", line
+        sendLine "error unknown"
 
-    of "add":
-      if arg.len == 0:
-        sendLine "error args"
-      else:
-        globalList.addSong arg
-        sendLine "added " & arg
-
-    of "next":
-      nextCmd()
-
-    of "clear":
-      clearCmd()
-
-    of "complete":
-      if arg.len == 0:
-        sendLine "error args"
-      else:
-        complete arg
-
-    of "getTable":
-      if arg.len == 0:
-        sendLine "error args"
-      else:
-        try:
-          for row in db.fastRows(sql "select * from " & arg):
-            sendLine row.join "\t"
-          sendLine ""
-        except DbError:
-          sendLine "error " & getCurrentExceptionMsg()
-
-    of "mergeChanges":
-      while true:
-        let change = await client.recvLine
-        if change == "" or change == "\r\L":
-          break
-
-        let parts = change.split "\t"
-        let song  = parts[0]
-        let diff  = parts[1].parseInt
-        db.exec(sql "update songs set count = count + ? where path = ?", diff, song)
-
-    else:
-      echo "unknown command ", line
-      sendLine "error unknown"
-
-    await client.send $res
+      await channel.send $res
+  except:
+    # client closed the connection
+    # decrease refcount of current song, process queue cleanup
+    echo "Lost client: ", getCurrentExceptionMsg()
+    clearCmd()
+    finish()
 
 proc main {.async.} =
   let args = commandLineParams()
   if args.len < 2:
     quit "Usage: $1 address port" % [getAppFilename()]
+
+  zeolite.init()
 
   let server = newAsyncSocket()
   server.setSockOpt(OptReuseAddr, true)
