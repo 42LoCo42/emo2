@@ -71,6 +71,8 @@ proc handle(socket: AsyncSocket) {.async.} =
       let cmd   = parts[0]
       let arg   = if parts.len > 1: parts[1] else: ""
 
+      echo cmd, " ", arg
+
       var res: Rope
       proc sendLine(line: string) =
         ## Simulate sending a line by appending it to the cache (`res`).
@@ -134,7 +136,8 @@ proc handle(socket: AsyncSocket) {.async.} =
         echo "unknown command ", line
         sendLine "error unknown"
 
-      await channel.send $res
+      if res.len > 0:
+        await channel.send $res
   except:
     # client closed the connection
     # decrease refcount of current song, process queue cleanup
