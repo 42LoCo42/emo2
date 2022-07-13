@@ -2,7 +2,7 @@ import std/[os, asyncnet, asyncdispatch, strutils, ropes, lists, db_sqlite]
 import playlist
 import zeolite
 
-let identity = zeolite.createIdentity()
+let identity = Identity()
 var globalList: Playlist
 
 proc trustAll(pk: SignPK): bool =
@@ -147,10 +147,16 @@ proc handle(socket: AsyncSocket) {.async.} =
 
 proc main {.async.} =
   let args = commandLineParams()
-  if args.len < 2:
-    quit "Usage: $1 address port" % [getAppFilename()]
+  if args.len < 3:
+    quit "Usage: $1 address port identfile" % [getAppFilename()]
 
   zeolite.init()
+
+  let identfile = open args[2]
+  if identfile.readBuffer(addr identity.pk, sizeof identity.pk) != sizeof identity.pk:
+    quit "Could not read public key"
+  if identfile.readBuffer(addr identity.sk, sizeof identity.sk) != sizeof identity.sk:
+    quit "Could not read secret key"
 
   let server = newAsyncSocket()
   server.setSockOpt(OptReuseAddr, true)

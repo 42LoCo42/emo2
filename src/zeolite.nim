@@ -78,8 +78,8 @@ proc crypto_secretstream_xchacha20poly1305_pull(
 
 type
   Identity* = ref object
-    pk: SignPK
-    sk: SignSK
+    pk*: SignPK
+    sk*: SignSK
 
   Channel* = ref object
     sock*:     AsyncSocket
